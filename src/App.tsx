@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { XMLParser } from "fast-xml-parser";
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+// import reactLogo from './assets/react.svg'
+// import viteLogo from '/vite.svg'
 import './App.css'
 
 const BASE_URL =
@@ -112,9 +112,9 @@ function App() {
             <p>No hay datos todavía. Presiona “Cargar”.</p>
           ) : (
             data.map((entry) => {
-              const channel = entry?.json?.rss?.channel;
-              const title = channel?.title ?? "(sin título)";
-              const link = channel?.link ?? entry.url;
+              // const channel = entry?.json?.rss?.channel;
+              // const title = channel?.title ?? "(sin título)";
+              // const link = channel?.link ?? entry.url;
 
               return (
                 <div
