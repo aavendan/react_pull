@@ -2,7 +2,7 @@
   "name": "react_pull",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://aavendan.github.io/rss",
+  "homepage": "https://aavendan.github.io/react_pull",
   "type": "module",
   "scripts": {
     "dev": "vite",
