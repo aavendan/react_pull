@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { XMLParser } from "fast-xml-parser";
 
 const BASE_URL =
@@ -71,7 +71,7 @@ async function fetchAllSections() {
   return results; // [{section,url,json}, ...]
 }
 
-async function sendToFirebase(payload: any) {
+/* async function sendToFirebase(payload: any) {
   // 
   const endpoint = `${FIREBASE_BASE}/${FIREBASE_PATH}.json`;
 
@@ -94,7 +94,7 @@ async function sendToFirebase(payload: any) {
 
   // Firebase devuelve algo tipo: { name: "-Nxxxx..." }
   return res.json();
-}
+}*/
 
 // ✅ Variante opcional: guardar por fecha (sobrescribe ese día)
 // PUT a .../eluniverso/2026-02-07.json
@@ -172,9 +172,9 @@ export default function App() {
         {loading ? "Cargando y guardando..." : "Cargar y Guardar"}
       </button>
 
-      {/* {status && (
-        <p style={{ marginTop: 12, whiteSpace: "pre-wrap" }}>{status}</p>
-      )} */}
+      {status && (
+        <p style={{ marginTop: 12, whiteSpace: "pre-wrap" }}>Done!</p>
+      )}
 
       {/* render mínimo por sección */}
       <div style={{ marginTop: 12 }}>
