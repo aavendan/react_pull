@@ -1,8 +1,5 @@
-import { useState } from 'react'
+import React, { useState } from "react";
 import { XMLParser } from "fast-xml-parser";
-// import reactLogo from './assets/react.svg'
-// import viteLogo from '/vite.svg'
-import './App.css'
 
 const BASE_URL =
   "https://www.eluniverso.com/arc/outboundfeeds/rss-subsection/{section}/?outputType=xml";
@@ -16,75 +13,152 @@ const SECTIONS = [
   "noticias/economia",
 ];
 
-// Convierte XML string a JSON (objeto JS)
+const FIREBASE_BASE = "https://news-reader-2acd6-default-rtdb.firebaseio.com";
+const FIREBASE_PATH = "eluniverso"; // terminará en .../eluniverso.json
+
 function xmlToJson(xmlText: string) {
   const parser = new XMLParser({
-    ignoreAttributes: false,      // conserva atributos
-    attributeNamePrefix: "@_",    // prefijo para atributos
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
     parseTagValue: true,
     trimValues: true,
   });
-
   return parser.parse(xmlText);
 }
 
-// Construye URL segura con section (encodéala para evitar problemas)
 function buildUrl(section: string) {
   return BASE_URL.replace("{section}", encodeURIComponent(section));
 }
 
-// Fetch XML de una sección y lo convierte a JSON
 async function fetchSectionAsJson(section: string) {
   const url = buildUrl(section);
-
   const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: "application/xml,text/xml;q=0.9,*/*;q=0.8",
-    },
+    headers: { Accept: "application/xml,text/xml;q=0.9,*/*;q=0.8" },
   });
 
   if (!res.ok) {
-    // Lanza error con detalle por sección
-    const text = await res.text().catch(() => "");
+    const body = await res.text().catch(() => "");
     throw new Error(
-      `Error ${res.status} (${res.statusText}) en section="${section}". Body: ${text.slice(
+      `Error ${res.status} en section="${section}". Body: ${body.slice(0, 200)}`
+    );
+  }
+
+  const xmlText = await res.text();
+  const json = xmlToJson(xmlText);
+  return { section, url, json };
+}
+
+function sanitizeKeys(obj: any): any {
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeKeys);
+  }
+
+  if (obj !== null && typeof obj === "object") {
+    const cleanObj: any = {};
+    for (const key of Object.keys(obj)) {
+      const cleanKey = key.replace(/[.$#[\]/]/g, "_");
+      cleanObj[cleanKey] = sanitizeKeys(obj[key]);
+    }
+    return cleanObj;
+  }
+
+  return obj;
+}
+
+
+async function fetchAllSections() {
+  const results = await Promise.all(SECTIONS.map(fetchSectionAsJson));
+  return results; // [{section,url,json}, ...]
+}
+
+async function sendToFirebase(payload: any) {
+  // 
+  const endpoint = `${FIREBASE_BASE}/${FIREBASE_PATH}.json`;
+
+  const res = await fetch(endpoint, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.log(payload)
+    throw new Error(
+      `Firebase error ${res.status} (${res.statusText}). Body: ${body.slice(
         0,
         200
       )}`
     );
   }
 
-  const xmlText = await res.text();
-  const json = xmlToJson(xmlText);
-
-  // Opcional: agrega metadatos de la sección
-  return { section, url, json };
+  // Firebase devuelve algo tipo: { name: "-Nxxxx..." }
+  return res.json();
 }
 
-// Hace todos los requests en paralelo y retorna arreglo con los JSON
-async function fetchAllSections() {
-  const promises = SECTIONS.map((section) => fetchSectionAsJson(section));
-  // Promise.all = paralelo; si una falla, falla todo
-  const results = await Promise.all(promises);
-  return results; // [{section, url, json}, ...]
+// ✅ Variante opcional: guardar por fecha (sobrescribe ese día)
+// PUT a .../eluniverso/2026-02-07.json
+function todayKey() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-function App() {
+async function sendToFirebaseByDate(payload: any) {
+  const key = todayKey();
+  const endpoint = `${FIREBASE_BASE}/${FIREBASE_PATH}/${key}.json`;
+
+  const res = await fetch(endpoint, {
+    method: "PUT", // PUT para escribir exactamente en esa fecha
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Firebase error ${res.status} (${res.statusText}). Body: ${body.slice(
+        0,
+        200
+      )}`
+    );
+  }
+
+  return res.json();
+}
+
+export default function App() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>("");
 
-  const handleLoad = async () => {
+  const handleLoadAndSave = async () => {
     setLoading(true);
-    setError(null);
+    setStatus("");
 
     try {
+      // 1) obtener todas las respuestas (paralelo)
       const results = await fetchAllSections();
       setData(results);
+
+      const cleanResults = sanitizeKeys(results);
+
+      // 2) armar payload (incluye timestamp)
+      const payload = {
+        createdAt: new Date().toISOString(),
+        source: "eluniverso",
+        sections: cleanResults,
+      };
+
+      // 3) enviar a Firebase (elige UNA)
+      // const fbResp = await sendToFirebase(payload); // POST con key automática
+      const fbResp = await sendToFirebaseByDate(payload); // PUT por fecha
+
+      setStatus(`Guardado en Firebase. Respuesta: ${JSON.stringify(fbResp)}`);
     } catch (e: any) {
-      setError(e?.message ?? "Error desconocido");
-      setData([]);
+      setStatus(`Error: ${e?.message ?? "desconocido"}`);
     } finally {
       setLoading(false);
     }
@@ -92,57 +166,24 @@ function App() {
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui" }}>
-      <h1>El Universo RSS → JSON</h1>
+      <h1>RSS → JSON → Firebase</h1>
 
-      <button onClick={handleLoad} disabled={loading}>
-        {loading ? "Cargando..." : "Cargar"}
+      <button onClick={handleLoadAndSave} disabled={loading}>
+        {loading ? "Cargando y guardando..." : "Cargar y Guardar"}
       </button>
 
-      {error && (
-        <p style={{ marginTop: 12, color: "crimson" }}>
-          <b>Error:</b> {error}
-        </p>
-      )}
+      {/* {status && (
+        <p style={{ marginTop: 12, whiteSpace: "pre-wrap" }}>{status}</p>
+      )} */}
 
-      <pre style={{ marginTop: 12, background: "#f5f5f5", padding: 12 }}>
-        {/* {JSON.stringify(data, null, 2)} */}
-        {/* Render por sección */}
-        <div style={{ marginTop: 12 }}>
-          {data.length === 0 ? (
-            <p>No hay datos todavía. Presiona “Cargar”.</p>
-          ) : (
-            data.map((entry) => {
-              // const channel = entry?.json?.rss?.channel;
-              // const title = channel?.title ?? "(sin título)";
-              // const link = channel?.link ?? entry.url;
-
-              return (
-                <div
-                  key={entry.section}
-                  style={{
-                    border: "1px solid #ddd",
-                    borderRadius: 8,
-                    padding: 12,
-                    marginBottom: 10,
-                  }}
-                >
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    <b>section:</b> 
-                  </div>
-
-                  <div style={{ fontSize: 18, marginTop: 6 }}>
-                    <b>{entry.section}</b>
-                  </div>
-
-                </div>
-              );
-            })
-          )}
-        </div>
-      </pre>
+      {/* render mínimo por sección */}
+      <div style={{ marginTop: 12 }}>
+        {data.map((entry) => (
+          <div key={entry.section} style={{ padding: 8, borderBottom: "1px solid #eee" }}>
+             <b>{entry.section}</b> {/* — {entry?.json?.rss?.channel?.title ?? "(sin título)"} */}
+          </div>
+        ))}
+      </div>
     </div>
   );
-
 }
-
-export default App
